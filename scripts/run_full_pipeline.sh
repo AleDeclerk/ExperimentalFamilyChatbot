@@ -10,8 +10,14 @@ mkdir -p eval
 log() { echo "[$(date '+%H:%M:%S')] $1" | tee -a "$LOG"; }
 
 log "========================================="
-log "PIPELINE COMPLETO - Jais 7B Chat"
+log "PIPELINE COMPLETO - Qwen2.5-3B-Instruct"
 log "========================================="
+
+MODEL_BASE="./models/base/qwen2.5-3b-instruct"
+MODEL_NAME="qwen-chatbot"
+ADAPTER_DIR="models/adapters/qwen-v1"
+FUSED_DIR="models/fused/qwen-v1"
+SYSTEM_MSG="أنت مساعد افتراضي ودود متخصص في الشؤون العائلية، تتحدث باللهجة الإماراتية. تقدم النصائح والمساعدة لأفراد العائلة في حياتهم اليومية بأسلوب دافئ ومحترم. أنت دائماً مساعد وليس فرداً من العائلة. استخدم التعبيرات الإماراتية الشائعة."
 
 # === PASO 1: Datos ya generados y limpios ===
 log "PASO 1: Usando datos limpios v4 (asistente virtual + adolescentes + refusals)..."
@@ -21,66 +27,65 @@ wc -l data/raw/all_conversations_v4.jsonl | tee -a "$LOG"
 log "PASO 2: Preparando train/test split..."
 $VENV scripts/prepare_dataset.py \
   --input data/raw/all_conversations_v4.jsonl \
-  --output-train data/processed/train_jais.jsonl \
-  --output-test data/processed/test_jais.jsonl \
+  --output-train data/processed/train_qwen.jsonl \
+  --output-test data/processed/test_qwen.jsonl \
   --test-size 0.1 2>&1 | tee -a "$LOG"
 
-# === PASO 3: Fine-tune Jais 7B Chat ===
-log "PASO 3: Fine-tuning Jais 7B Chat..."
-log "  Modelo: models/base/jais-7b-chat"
-log "  Epochs: 3, Batch: 1, Grad Accum: 16, LR: 2e-4, LoRA rank: 16"
+# === PASO 3: Fine-tune Qwen2.5-3B-Instruct ===
+log "PASO 3: Fine-tuning Qwen2.5-3B-Instruct..."
+log "  Modelo: $MODEL_BASE"
+log "  Epochs: 5, Batch: 2, Grad Accum: 8, LR: 2e-4, LoRA rank: 32"
 
-# Limpiar adapters anteriores
-rm -rf models/adapters/jais-v1
+rm -rf "$ADAPTER_DIR"
 
 $VENV scripts/finetune.py \
-  --model-name ./models/base/jais-7b-chat \
-  --train-data data/processed/train_jais.jsonl \
-  --output-dir models/adapters/jais-v1 \
-  --epochs 3 \
+  --model-name "$MODEL_BASE" \
+  --train-data data/processed/train_qwen.jsonl \
+  --output-dir "$ADAPTER_DIR" \
+  --epochs 5 \
   --batch-size 1 \
   --gradient-accumulation 16 \
   --learning-rate 2e-4 \
   --lora-rank 16 \
+  --lora-alpha 16 \
   --max-seq-length 512 2>&1 | tee -a "$LOG"
 
 log "Fine-tuning completado!"
 
 # === PASO 4: Fusionar adapter + modelo base ===
 log "PASO 4: Fusionando adapter con modelo base..."
-rm -rf models/fused/jais-v1
+rm -rf "$FUSED_DIR"
 
 $VENV scripts/fuse_model.py \
-  --base-model ./models/base/jais-7b-chat \
-  --adapter-path models/adapters/jais-v1 \
-  --output-path models/fused/jais-v1 2>&1 | tee -a "$LOG"
+  --base-model "$MODEL_BASE" \
+  --adapter-path "$ADAPTER_DIR" \
+  --output-path "$FUSED_DIR" 2>&1 | tee -a "$LOG"
 
 log "Fusión completada!"
 
 # === PASO 5: Convertir a GGUF y cuantizar ===
 log "PASO 5: Convirtiendo a GGUF f16..."
-rm -f models/quantized/jais-chatbot-f16.gguf models/quantized/jais-chatbot-q5km.gguf
+rm -f models/quantized/${MODEL_NAME}-f16.gguf models/quantized/${MODEL_NAME}-q5km.gguf
 
 $VENV llama.cpp/convert_hf_to_gguf.py \
-  models/fused/jais-v1 \
+  "$FUSED_DIR" \
   --outtype f16 \
-  --outfile models/quantized/jais-chatbot-f16.gguf 2>&1 | tee -a "$LOG"
+  --outfile models/quantized/${MODEL_NAME}-f16.gguf 2>&1 | tee -a "$LOG"
 
 log "Cuantizando a Q5_K_M..."
 ./llama.cpp/build/bin/llama-quantize \
-  models/quantized/jais-chatbot-f16.gguf \
-  models/quantized/jais-chatbot-q5km.gguf \
+  models/quantized/${MODEL_NAME}-f16.gguf \
+  models/quantized/${MODEL_NAME}-q5km.gguf \
   Q5_K_M 2>&1 | tee -a "$LOG"
 
 log "Cuantización completada!"
-ls -lh models/quantized/jais-chatbot-q5km.gguf | tee -a "$LOG"
+ls -lh models/quantized/${MODEL_NAME}-q5km.gguf | tee -a "$LOG"
 
 # === PASO 6: Test rápido con llama-server ===
 log "PASO 6: Test rápido con llama.cpp..."
 
-# Iniciar servidor en background
 ./llama.cpp/build/bin/llama-server \
-  -m models/quantized/jais-chatbot-q5km.gguf \
+  -m models/quantized/${MODEL_NAME}-q5km.gguf \
   -t 4 -c 2048 --host 127.0.0.1 --port 8080 &
 SERVER_PID=$!
 sleep 10
@@ -89,13 +94,13 @@ sleep 10
 log "Test 1: Saludo..."
 curl -s http://127.0.0.1:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{
-    "messages": [
-      {"role": "system", "content": "أنت مساعد عائلي ودود يتحدث باللهجة الإماراتية. أجب مباشرة باللهجة الإماراتية فقط."},
-      {"role": "user", "content": "هلا يمه شخبارك؟"}
+  -d "{
+    \"messages\": [
+      {\"role\": \"system\", \"content\": \"$SYSTEM_MSG\"},
+      {\"role\": \"user\", \"content\": \"هلا، شخبارك؟\"}
     ],
-    "max_tokens": 512, "temperature": 0.7
-  }' 2>/dev/null | $VENV -c "
+    \"max_tokens\": 256, \"temperature\": 0.7
+  }" 2>/dev/null | $VENV -c "
 import sys, json
 d = json.load(sys.stdin)
 c = d['choices'][0]['message']
@@ -108,13 +113,13 @@ print(f'Speed: {t[\"predicted_per_second\"]:.1f} tok/s | TTFT: {t[\"prompt_ms\"]
 log "Test 2: Comida..."
 curl -s http://127.0.0.1:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{
-    "messages": [
-      {"role": "system", "content": "أنت مساعد عائلي ودود يتحدث باللهجة الإماراتية. أجب مباشرة باللهجة الإماراتية فقط."},
-      {"role": "user", "content": "شو نطبخ حق الغدا اليوم؟"}
+  -d "{
+    \"messages\": [
+      {\"role\": \"system\", \"content\": \"$SYSTEM_MSG\"},
+      {\"role\": \"user\", \"content\": \"شو نطبخ حق الغدا اليوم؟\"}
     ],
-    "max_tokens": 512, "temperature": 0.7
-  }' 2>/dev/null | $VENV -c "
+    \"max_tokens\": 256, \"temperature\": 0.7
+  }" 2>/dev/null | $VENV -c "
 import sys, json
 d = json.load(sys.stdin)
 c = d['choices'][0]['message']
@@ -123,17 +128,17 @@ print(f'Response: {c.get(\"content\",\"\")[:300]}')
 print(f'Speed: {t[\"predicted_per_second\"]:.1f} tok/s | TTFT: {t[\"prompt_ms\"]:.0f}ms')
 " 2>&1 | tee -a "$LOG"
 
-# Test 3: Crianza
-log "Test 3: Crianza..."
+# Test 3: Adolescente
+log "Test 3: Adolescente..."
 curl -s http://127.0.0.1:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{
-    "messages": [
-      {"role": "system", "content": "أنت مساعد عائلي ودود يتحدث باللهجة الإماراتية. أجب مباشرة باللهجة الإماراتية فقط."},
-      {"role": "user", "content": "ولدي ما يسمع الكلام شو أسوي؟"}
+  -d "{
+    \"messages\": [
+      {\"role\": \"system\", \"content\": \"$SYSTEM_MSG\"},
+      {\"role\": \"user\", \"content\": \"بنتي عمرها ١٣ وصارت عصبية وايد شو أسوي؟\"}
     ],
-    "max_tokens": 512, "temperature": 0.7
-  }' 2>/dev/null | $VENV -c "
+    \"max_tokens\": 256, \"temperature\": 0.7
+  }" 2>/dev/null | $VENV -c "
 import sys, json
 d = json.load(sys.stdin)
 c = d['choices'][0]['message']
@@ -142,17 +147,36 @@ print(f'Response: {c.get(\"content\",\"\")[:300]}')
 print(f'Speed: {t[\"predicted_per_second\"]:.1f} tok/s | TTFT: {t[\"prompt_ms\"]:.0f}ms')
 " 2>&1 | tee -a "$LOG"
 
-# Test 4: Refusal (out-of-scope)
-log "Test 4: Refusal..."
+# Test 4: Menstruación
+log "Test 4: Menstruación..."
 curl -s http://127.0.0.1:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{
-    "messages": [
-      {"role": "system", "content": "أنت مساعد عائلي ودود يتحدث باللهجة الإماراتية. أجب مباشرة باللهجة الإماراتية فقط."},
-      {"role": "user", "content": "ساعدني أبرمج موقع"}
+  -d "{
+    \"messages\": [
+      {\"role\": \"system\", \"content\": \"$SYSTEM_MSG\"},
+      {\"role\": \"user\", \"content\": \"بنتي يتها أول دورة وخايفة، شو أسوي؟\"}
     ],
-    "max_tokens": 512, "temperature": 0.7
-  }' 2>/dev/null | $VENV -c "
+    \"max_tokens\": 256, \"temperature\": 0.7
+  }" 2>/dev/null | $VENV -c "
+import sys, json
+d = json.load(sys.stdin)
+c = d['choices'][0]['message']
+t = d['timings']
+print(f'Response: {c.get(\"content\",\"\")[:300]}')
+print(f'Speed: {t[\"predicted_per_second\"]:.1f} tok/s | TTFT: {t[\"prompt_ms\"]:.0f}ms')
+" 2>&1 | tee -a "$LOG"
+
+# Test 5: Refusal
+log "Test 5: Refusal..."
+curl -s http://127.0.0.1:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"messages\": [
+      {\"role\": \"system\", \"content\": \"$SYSTEM_MSG\"},
+      {\"role\": \"user\", \"content\": \"ساعدني أبرمج موقع\"}
+    ],
+    \"max_tokens\": 256, \"temperature\": 0.7
+  }" 2>/dev/null | $VENV -c "
 import sys, json
 d = json.load(sys.stdin)
 c = d['choices'][0]['message']
