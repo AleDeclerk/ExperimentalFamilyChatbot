@@ -99,10 +99,13 @@ El chatbot es siempre un asistente virtual profesional y calido. Nunca asume el 
 - Mejora notable pero aun caia en MSA ocasionalmente
 - Scope parcial: semi-rechazaba pero daba info de todas formas
 
-### Intento 5: Aya Expanse 8B (2755 ejemplos) - EN PROGRESO
-- Modelo multilingue de Cohere, excelente soporte arabe
-- Dataset v5 con weakness fixes especificos para Aya
-- Configuracion: epochs=3, LR=1e-4, LoRA rank=16, alpha=32, max_seq=1024
+### Intento 5: Aya Expanse 8B (2755 ejemplos) - COMPLETADO
+- Modelo multilingue de Cohere, 8B params, excelente soporte arabe
+- Dataset v5 con weakness fixes especificos (dialecto, persona, refusals, tono)
+- Training: 3 epochs, 465 steps, ~3h en M3 Max
+- GGUF Q5_K_M: 5.4GB | 57 tok/s | TTFT 64-256ms
+- Refusals: perfectos. Persona: se mantiene. Dialecto: muy natural
+- Debil en menstruacion (respuesta incoherente) y artifacts multilingues ocasionales
 
 ### Configuracion de entrenamiento (Aya)
 ```
@@ -128,21 +131,25 @@ Dispositivo: Apple M3 Max 48GB (MPS, float16)
 3. Convertir a GGUF f16 con convert_hf_to_gguf.py
 4. Cuantizar a Q5_K_M con llama-quantize
 
-### Resultado (Jais)
-- GGUF Q5_K_M: **4.7GB** (cabe en 8GB device con margen)
+### Resultados
+
+| Modelo | GGUF Q5_K_M | Cabe en 8GB |
+|--------|-------------|-------------|
+| Jais 7B | 4.7GB | Si, con margen |
+| Aya 8B | 5.4GB | Si, justo |
 
 ---
 
 ## M5: Simulacion Edge
 
-### Resultados de performance (Jais Q5_K_M)
+### Resultados de performance
 
-| Metrica | Target (spec) | Resultado |
-|---------|--------------|-----------|
-| Tokens/s | >5 tok/s | **60+ tok/s** |
-| TTFT | <2s | **60-150ms** |
-| Tamano GGUF | ~5.4GB | **4.7GB** |
-| RAM peak | <7GB | ~5.7GB |
+| Metrica | Target (spec) | Jais 7B Q5_K_M | Aya 8B Q5_K_M |
+|---------|--------------|----------------|---------------|
+| Tokens/s | >5 tok/s | **60+ tok/s** | **57 tok/s** |
+| TTFT | <2s | **60-150ms** | **64-256ms** |
+| Tamano GGUF | ~5.4GB | **4.7GB** | **5.4GB** |
+| RAM peak | <7GB | ~5.7GB | ~6.3GB |
 
 ---
 

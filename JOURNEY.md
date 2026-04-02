@@ -243,19 +243,89 @@ Comparado con la config de Jais, ajustamos:
 
 ---
 
-## Fase 7: Pipeline y Deployment (actual)
+## Fase 7: Fine-Tuning de Aya Expanse 8B — Resultados
 
-### Lo que esta construido
-- `run_aya_pipeline.sh` — Pipeline end-to-end: prep datos -> fine-tune -> fusionar -> cuantizar -> test
-- `deploy/ui.py` — Interfaz de chat Gradio
-- `deploy/server.py` — Wrapper FastAPI para llama.cpp
-- Repo GitHub: publico en AleDeclerk/ExperimentalFamilyChatbot
+### Training
+- 2479 ejemplos de training, 276 de test (split 90/10 del dataset v5)
+- 3 epochs, 465 steps totales
+- ~3 horas en M3 Max (MPS, float16)
+- 41.9M parametros entrenables (0.52% del modelo)
+- ~22 seg/step promedio
 
-### Lo que sigue
-1. Correr el fine-tuning de Aya (~2-3 horas en M3 Max)
-2. Evaluar contra test set
-3. Comparar calidad Aya vs Jais
-4. Demo Gradio con modelo final
+### Cuantizacion
+- GGUF Q5_K_M: **5.4GB** (Jais era 4.7GB — Aya es mas grande por ser 8B)
+- Cuantizacion limpia, sin errores (arquitectura Command-R, compatible con Llama)
+- Nota: `llama-quantize` necesito `DYLD_LIBRARY_PATH` por un rpath apuntando al viejo repo
+
+### Resultados de los tests
+
+```
+=== TEST: Saludo ===
+Prompt: "هلا، شخبارك؟"
+Response: "هلا والله! الحمد لله بخير. شخبارك أنت؟ عساك بخير وعافية."
+→ EXCELENTE. Emirati puro, natural, conciso.
+Speed: 58.1 tok/s | TTFT: 256ms
+
+=== TEST: Comida ===
+Prompt: "شو نطبخ حق الغدا اليوم؟"
+Response: "شو رايكم نطبخ مچبوس دياي؟ الأرز مع الدياي دايماً يصير حلو.
+          ونحط فيه بصل محمر وبهارات. والسلطة من فوق. كل العايلة تحبه."
+→ EXCELENTE. Sugiere machboos, tono conversacional, sin listas.
+Speed: 57.0 tok/s | TTFT: 64ms
+
+=== TEST: Adolescente ===
+Prompt: "بنتي عمرها ١٣ وصارت عصبية وايد شو أسوي؟"
+Response: "طبيعي المراهقين يحسون بالعصبية مع تغييرات الجسم والنفسية.
+          خليها تعبر عن مشاعرها بطريقة صحية..."
+→ BUENO. Buen consejo, pero tiene una palabra en ingles ("wrong") mezclada.
+Speed: 56.0 tok/s | TTFT: 113ms
+
+=== TEST: Menstruacion ===
+Prompt: "بنتي يتها أول دورة وخايفة، شو أسوي؟"
+Response: "طمنيها إنها بس كليت وعندي كله في الدفتر..."
+→ DEBIL. Respuesta parcialmente incoherente. Necesita mas datos de calidad
+   en esta categoria. Algunos fragmentos no tienen sentido.
+Speed: 55.9 tok/s | TTFT: 65ms
+
+=== TEST: Refusal ===
+Prompt: "ساعدني أبرمج موقع"
+Response: "أنا مساعد متخصص في الشؤون العائلية باللهجة الإماراتية.
+          البرمجة مو من تخصصي. بس أنصحك تشوف كورسات أونلاين أو
+          تسأل متخصصين. إذا تبي نصيحة عائلية أنا حاضر!"
+→ PERFECTO. Rechazo firme, amable, con redireccion. Exactamente lo que queriamos.
+Speed: 56.4 tok/s | TTFT: 64ms
+
+=== TEST: Crianza ===
+Prompt: "ولدي عمره ٥ سنوات ما يبي ياكل خضار، شو أسوي؟"
+Response: "أخفي الخضار مع الأرز أو الصلصة. أو سوي له عجينة الخضار..."
+→ BUENO. Consejo practico, conciso. Tiene un artifact raro ("ب题") — 
+   contaminacion multilingue del modelo base.
+Speed: 56.6 tok/s | TTFT: 67ms
+```
+
+### Comparacion Aya FT vs Jais FT
+
+| Metrica | Jais 7B (2268 ej) | Aya 8B (2755 ej) | Veredicto |
+|---------|-------------------|-------------------|-----------|
+| Dialecto emirati | Bueno, cae en MSA a veces | Excelente, mas natural | Aya gana |
+| Refusals | Firmes pero a veces parciales | Firmes y limpios | Aya gana |
+| Persona | Corregida, se mantiene | Se mantiene siempre | Empate |
+| Tono | A veces verboso | Conciso y calido | Aya gana |
+| Menstruacion | Funcional | Incoherente | Jais gana |
+| Artifacts | Ninguno | Ocasional multilingue | Jais gana |
+| Velocidad | 60+ tok/s | 56-58 tok/s | Jais un poco |
+| GGUF size | 4.7GB | 5.4GB | Jais mas chico |
+| TTFT | 60-150ms | 64-256ms | Similar |
+
+### Puntos debiles que quedan
+1. **Menstruacion:** La respuesta es incoherente. Necesita mas ejemplos de alta calidad en esta categoria especifica.
+2. **Artifacts multilingues:** Ocasionalmente aparecen caracteres chinos ("题") o palabras en ingles ("wrong") — contaminacion del modelo base multilingue.
+3. **TTFT primer request:** 256ms en el primer request (cold), despues baja a 64ms.
+
+### Deployment
+- **llama.cpp server:** puerto 8080, API compatible con OpenAI
+- **Gradio UI:** puerto 7860, interfaz de chat web
+- **Repo:** github.com/AleDeclerk/ExperimentalFamilyChatbot
 
 ---
 
@@ -288,14 +358,15 @@ v5 (2755 ejemplos)
 
 ## Resumen de Tests por Modelo
 
-| Test | Falcon H1R 7B | Jais 7B (260 ej) | Jais 7B (1370 ej) | Jais 7B (2268 ej) | Aya 8B base |
-|------|--------------|-------------------|--------------------|--------------------|-------------|
-| Saludo emirati | `<think>` tags | MSA generico | Emirati pero como familiar | Emirati correcto | MSA formal |
-| Cocina | `<think>` tags | Lista ChatGPT | Bueno pero verboso | Bueno | Lista markdown |
-| Adolescente | `<think>` tags | Sin cobertura | Confunde persona | Mejorado | Sin boundaries |
-| Refusal | `<think>` tags | Ayuda alegremente | Semi-rechaza | Firme | Ayuda alegremente |
-| Tono | Alucinacion total | Robotico | Verboso | Mejorado | ChatGPT-like |
-| **Accuracy** | **0%** | **70%** | **93%** | **Mejor** | **Base sin FT** |
+| Test | Falcon H1R 7B | Jais 7B (260 ej) | Jais 7B (1370 ej) | Jais 7B (2268 ej) | Aya 8B base | Aya 8B FT (2755 ej) |
+|------|--------------|-------------------|--------------------|--------------------|-------------|----------------------|
+| Saludo emirati | `<think>` tags | MSA generico | Emirati pero como familiar | Emirati correcto | MSA formal | **Emirati perfecto** |
+| Cocina | `<think>` tags | Lista ChatGPT | Bueno pero verboso | Bueno | Lista markdown | **Natural, machboos** |
+| Adolescente | `<think>` tags | Sin cobertura | Confunde persona | Mejorado | Sin boundaries | **Bueno** (1 artifact) |
+| Menstruacion | `<think>` tags | Sin cobertura | Sin cobertura | Funcional | Sin boundaries | **Debil** (incoherente) |
+| Refusal | `<think>` tags | Ayuda alegremente | Semi-rechaza | Firme | Ayuda alegremente | **Perfecto** |
+| Tono | Alucinacion total | Robotico | Verboso | Mejorado | ChatGPT-like | **Conciso y calido** |
+| **Velocidad** | **6.5 tok/s** | **60+ tok/s** | **60+ tok/s** | **60+ tok/s** | **-** | **57 tok/s** |
 
 ---
 
@@ -308,7 +379,7 @@ v5 (2755 ejemplos)
 | Jais 7B Chat (r2) | 7B | 4.36→0.37 | 93% acc | Confunde persona, refusals debiles, verboso |
 | Jais 7B Chat (r3) | 7B | - | Mejor | Aun cae en MSA, scope parcial |
 | Qwen2.5-3B (test) | 3B | - | Pipeline ok | Solo para validar pipeline, muy chico |
-| Aya Expanse 8B | 8B | En progreso | Pendiente | Mejor soporte multilingue, 8B params |
+| Aya Expanse 8B FT | 8B | Completado | 57 tok/s, 5.4GB | Mejor dialecto/refusals, debil en menstruacion |
 
 ---
 

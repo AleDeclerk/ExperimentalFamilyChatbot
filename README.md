@@ -91,14 +91,16 @@ Este proyecto paso por multiples iteraciones de modelos (Falcon H1R 7B -> Jais 7
 └── llama.cpp/                  # Herramientas de cuantizacion
 ```
 
-## Rendimiento (Jais 7B, modelo anterior)
+## Rendimiento (Aya Expanse 8B fine-tuned)
 
 | Metrica | Resultado |
 |---------|-----------|
-| Tokens/s | 60+ tok/s (M3 Max) |
-| TTFT | 60-150ms |
-| Tamano GGUF | 4.7GB (Q5_K_M) |
-| RAM pico | ~5.7GB |
+| Tokens/s | 57 tok/s (M3 Max) |
+| TTFT | 64-256ms |
+| Tamano GGUF | 5.4GB (Q5_K_M) |
+| RAM pico | ~6.3GB |
+| Training | ~3h en M3 Max (MPS) |
+| Dataset | 2755 ejemplos (v5) |
 
 ## Licencia
 
