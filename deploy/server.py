@@ -14,7 +14,7 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-app = FastAPI(title="Falcon Edge Chatbot")
+app = FastAPI(title="Emirati Family Chatbot")
 
 LLAMA_SERVER_URL = os.getenv("LLAMA_SERVER_URL", "http://localhost:8080")
 

@@ -1,5 +1,5 @@
 """
-Gradio chat interface para el Edge Chatbot (Jais 7B).
+Gradio chat interface para el Edge Chatbot (Aya Expanse 8B).
 Conecta directo a llama.cpp server (OpenAI-compatible API).
 
 Uso:
@@ -40,7 +40,7 @@ def chat_fn(message: str, history: list[dict]) -> str:
 demo = gr.ChatInterface(
     fn=chat_fn,
     title="🇦🇪 مساعد العائلة الإماراتي",
-    description="شات بوت عائلي باللهجة الإماراتية — Jais 7B fine-tuned, Q5_K_M, CPU-only",
+    description="شات بوت عائلي باللهجة الإماراتية — Aya Expanse 8B fine-tuned, Q5_K_M",
     examples=[
         "هلا يمه شخبارك؟",
         "شو نطبخ حق الغدا اليوم؟",
