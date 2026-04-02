@@ -73,22 +73,31 @@ El chatbot es siempre un asistente virtual profesional y calido. Nunca asume el 
 
 ## M3: Fine-Tuning
 
-### Intento 1: Falcon H1R 7B (descartado)
-- Modelo orientado a razonamiento (hybrid Mamba-Transformer), pobre en arabe
-- Loss 4.77->4.67 (125 ejemplos), respuestas mezcladas arabe/ingles
-- Capas SSM tenian valores inf que rompian la cuantizacion
+### Intento 1: Falcon H1R 7B (fallo total)
+- Loss: 4.77 -> 4.67 (125 ejemplos, practicamente no aprendio)
+- **Resultado: 0% usable.** Generaba `<think>` tags en loop infinito en vez de respuestas
+- 3 de 3 tests fallidos: output literal era `<think>` (256 tokens de basura)
+- Mezclaba arabe e ingles, no entendia que tenia que conversar
+- Cuantizacion rota: capas SSM con valores inf en layers 38 y 43
+- Velocidad: 6.5 tok/s pero generando tokens inutiles
 
 ### Intento 2: Jais 7B Chat (260 ejemplos)
 - Loss: 4.3 -> 1.75 | Accuracy: 36% -> 70%
-- Arabe coherente pero generico, refusals no funcionan
+- Arabe coherente pero en MSA generico (formal), no emirati
+- Refusals inexistentes: le pedias programar y programaba alegremente
+- Sin personalidad ni dialecto
 
 ### Intento 3: Jais 7B Chat (1370 ejemplos)
 - Loss: 4.36 -> 0.37 | Accuracy: 35% -> 93%
-- Arabe emirati natural, buena calidad
+- Gran mejora en dialecto emirati y multi-turn
+- PERO: confundia persona (le decian "yimma" y se hacia la mama)
+- Refusals debiles: "no es mi area pero aca van tips de programacion..."
+- Tono verboso, listas estilo ChatGPT
 
 ### Intento 4: Jais 7B Chat (2268 ejemplos)
-- Persona corregida + adolescentes + refusals
-- Mejora en consistencia
+- Persona corregida + adolescentes + refusals firmes
+- Mejora notable pero aun caia en MSA ocasionalmente
+- Scope parcial: semi-rechazaba pero daba info de todas formas
 
 ### Intento 5: Aya Expanse 8B (2755 ejemplos) - EN PROGRESO
 - Modelo multilingue de Cohere, excelente soporte arabe

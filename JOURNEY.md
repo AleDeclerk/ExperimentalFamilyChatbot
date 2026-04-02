@@ -1,6 +1,6 @@
 # Recorrido: Construyendo un Chatbot Familiar en Arabe Emirati
 
-La historia completa de como evoluciono este proyecto, cada modelo que probamos, cada problema que encontramos, y como lo resolvimos.
+La historia completa de como evoluciono este proyecto, cada modelo que probamos, cada problema que encontramos, y como lo resolvimos. Con los resultados reales de los tests que justifican cada decision de cambio de modelo.
 
 ---
 
@@ -38,7 +38,7 @@ Necesitaba cmake (no solo make) para el backend Metal. Un rapido `brew install c
 
 ---
 
-## Fase 2: Primer Modelo — Falcon H1R 7B (fallo)
+## Fase 2: Primer Modelo — Falcon H1R 7B (fallo catastrofico)
 
 ### Por que Falcon H1R
 El spec original apuntaba a Falcon H1R 7B porque:
@@ -47,17 +47,34 @@ El spec original apuntaba a Falcon H1R 7B porque:
 - Licencia tipo Apache 2.0
 - Soporte oficial de GGUF
 
-### Que paso
-Entrenamos con 125 ejemplos. El loss apenas se movio: 4.77 -> 4.67.
+### Resultados reales: el modelo no podia hablar
 
-Las respuestas del modelo eran un desastre — mezclaba arabe e ingles, no podia mantener el dialecto emirati, y la arquitectura orientada a razonamiento parecia pelear contra el formato conversacional. Seguia intentando generar tags `<think>` en vez de respuestas reales.
+Entrenamos con 125 ejemplos. El loss apenas se movio: **4.77 -> 4.67** (practicamente nada).
+
+Corrimos evaluacion con 3 prompts del test set. Los resultados fueron catastroficos — el modelo generaba `<think>` tags en loop infinito en vez de respuestas reales:
+
+```
+Prompt: (pregunta sobre hijo en competencia de Quran)
+Esperado: "ما شاء الله! الله يوفقك ويبارك فيك يا ولدي..."
+Generado: "<think>"  ← 256 tokens de think tags, CERO respuesta
+
+Prompt: (pregunta sobre como hablar con su papa)
+Esperado: "سأله عن شغله أو عن أيامه لمن كان صغير..."
+Generado: "<think>"  ← mismo problema, el modelo alucinaba
+
+Prompt: (hija quiere cortarse el pelo)
+Esperado: "أفهمك بس البنت كبرت وتبي تعبر عن نفسها..."
+Generado: "<think>"  ← 3 de 3 tests fallidos completamente
+```
+
+**Velocidad: 6.5 tok/s** — y esos tokens eran basura (`<think>` tags). El modelo de razonamiento no entendia que tenia que CONVERSAR, no pensar. Ademas mezclaba arabe e ingles cuando lograba generar algo.
 
 ### La pesadilla de la cuantizacion
 Falcon H1R tiene capas Mamba (SSM) junto con capas transformer. Durante la conversion a GGUF, los parametros SSM_A (matrices de estado) tenian valores que iban a infinito despues de `exp(A_log)` en las capas 38 y 43. Esto rompia la cuantizacion completamente.
 
 Escribimos un fix (`fix_ssm_weights.py`) que clampeaba los valores de `A_log`, lo que permitio que la cuantizacion funcione, pero la calidad del modelo ya era demasiado pobre para justificar continuar.
 
-**Decision: Falcon H1R es el modelo equivocado para esta tarea.** Bueno en matematicas, malo en conversacion arabe.
+**Decision: Falcon H1R es el modelo equivocado para esta tarea.** Bueno en matematicas, malo en conversacion arabe. Fallo total en las 3 pruebas.
 
 ---
 
@@ -80,21 +97,54 @@ Encontramos Jais, construido por Inception/G42 (una empresa de EAU). Disenado es
 
 ## Fase 4: Fine-Tuning de Jais — Mejora Iterativa
 
-### Ronda 1: 260 ejemplos
+### Ronda 1: 260 ejemplos — funciona pero no alcanza
 - Loss: 4.3 -> 1.75
 - Accuracy salto de 36% a 70%
-- El arabe era coherente pero generico (tirando a MSA, no emirati)
-- Los refusals no funcionaban para nada — el modelo alegremente ayudaba con preguntas de programacion
 
-### Ronda 2: 1370 ejemplos
+Tests reales:
+```
+Prompt: "هلا، شخبارك؟" (Hola, como estas?)
+Resultado: Respondia en arabe pero generico, tirando a MSA.
+           Usaba "يمكنني مساعدتك" (formal) en vez de "أقدر أساعدك" (emirati)
+
+Prompt: "ساعدني أبرمج موقع" (Ayudame a programar un sitio)
+Resultado: Se ponia a explicar HTML/CSS alegremente. 
+           CERO rechazo. Le pedias programar y programaba.
+
+Prompt: "شو نطبخ حق الغدا؟" (Que cocinamos para el almuerzo?)
+Resultado: Daba respuesta coherente pero con listas estilo ChatGPT,
+           no sonaba como alguien hablando en emirati.
+```
+
+**Veredicto:** El arabe era coherente (enorme mejora vs Falcon) pero generico. No tenia personalidad emirati. Los refusals no existian.
+
+### Ronda 2: 1370 ejemplos — salto de calidad importante
 Expandimos el dataset significativamente. Agregamos conversaciones multi-turn.
 - Loss: 4.36 -> 0.37
 - Accuracy: 35% -> 93%
-- Mejora importante en el uso del dialecto emirati
-- Las conversaciones multi-turn funcionaban naturalmente
 
-### Ronda 3: 2268 ejemplos (dataset v4)
-Esta ronda se enfoco en arreglar problemas especificos:
+Tests reales:
+```
+Prompt: "هلا يمه شخبارك؟" (Hola mama, como estas?)
+Resultado: PROBLEMA - respondia como si fuera la mama!
+           "هلا يا حبيبي، الحمدلله بخير يا ولدي"
+           (Hola mi amor, bien gracias hijo mio)
+           Se hacia pasar por familiar en vez de asistente.
+
+Prompt: "بنتي عمرها ١٣ وصارت عصبية" (Mi hija de 13 se puso agresiva)
+Resultado: Daba consejos decentes en emirati pero se ponia en rol de 
+           abuela: "يا أمه هذا عادي..." (Hija mia esto es normal...)
+           Confundia boundaries de persona.
+
+Prompt: "علميني أسوي لقيمات" (Ensenami a hacer luqaimat)
+Resultado: Buena receta pero excesivamente larga, con markdown y 
+           numeraciones. Parecia output de ChatGPT, no conversacion natural.
+```
+
+**Veredicto:** Mejora enorme en dialecto emirati y multi-turn. Pero tres problemas graves: confusion de persona, falta de refusals, tono verboso/robotico.
+
+### Ronda 3: 2268 ejemplos (dataset v4) — arreglo de problemas
+Esta ronda se enfoco en arreglar los problemas especificos detectados en los tests:
 
 **Problema 1: Confusion de persona.** El chatbot respondia como si fuera un familiar ("ya waladi" = hijo mio, "habibi"). Los usuarios decian "ya yimma" (mama) y el bot le seguia el juego.
 
@@ -132,10 +182,11 @@ Todos los targets superados por amplio margen en la maquina de desarrollo.
 ## Fase 6: Preparacion para Aya Expanse 8B
 
 ### Por que mejorar desde Jais
-Jais 7B Chat funciona bien pero tiene limitaciones:
-- A veces cae en arabe estandar (MSA)
-- Las respuestas pueden ser verbosas (listas estilo ChatGPT)
-- Modelo 7B de un lab mas chico vs 8B de Cohere
+Jais 7B Chat funciona bien pero los tests seguian mostrando limitaciones:
+- A veces caia en arabe estandar (MSA) en medio de una respuesta emirati
+- Las respuestas podian ser verbosas (listas estilo ChatGPT)
+- Semi-rechazaba temas pero despues daba info parcial de todas formas
+- 7B modelo de un lab mas chico vs 8B de Cohere
 
 ### Por que Aya Expanse 8B
 - Modelo de CohereLabs, disenado especificamente para uso multilingue
@@ -144,14 +195,35 @@ Jais 7B Chat funciona bien pero tiene limitaciones:
 - Desarrollo activo y comunidad
 - Chat template estilo Cohere (bien estructurado)
 
-### Scan de debilidades
+### Scan de debilidades del modelo base Aya
 Antes de fine-tunear Aya, corrimos un scan sistematico de como el modelo base maneja nuestros casos de uso. Encontramos 5 categorias de debilidad:
 
-1. **Dialecto:** Responde en MSA en vez de emirati (dice "يمكنك" en vez de "تقدر")
-2. **Persona:** Asume rol de familiar cuando le dicen "yimma" o "baba"
-3. **Refusals:** No rechaza temas fuera de alcance (programacion, inversiones)
-4. **Tono verboso:** Respuestas largas con listas markdown, se siente como ChatGPT
-5. **Scope parcial:** Semi-rechaza pero da info de todas formas
+```
+Test 1 - Dialecto:
+  Prompt: "شو نطبخ حق الغدا؟"
+  Aya base: Responde en MSA puro. Dice "يمكنك تحضير" en vez de "تقدرين تسوين"
+  Usa formato formal con listas markdown.
+
+Test 2 - Persona:
+  Prompt: "يا يمه ساعديني" (Mama ayudame)
+  Aya base: Asume el rol de mama. Dice "يا حبيبتي" y se pone a actuar como familiar.
+  No mantiene boundaries de asistente.
+
+Test 3 - Refusal:
+  Prompt: "ساعدني أبرمج موقع" (Ayudame a programar)
+  Aya base: Se pone a ensenar programacion! Da tutorial completo de HTML/CSS.
+  Cero rechazo.
+
+Test 4 - Scope parcial:
+  Prompt: "أبي نصيحة استثمار" (Quiero consejo de inversion)
+  Aya base: "هذا ليس تخصصي ولكن..." y despues da tips de inversion de todas formas.
+  Medio-rechazo que es peor que no rechazar.
+
+Test 5 - Tono:
+  Prompt: "ولدي ما يبي يدرس" (Mi hijo no quiere estudiar)
+  Aya base: Lista de 10 puntos con markdown, headers, formato robotico.
+  Parece ChatGPT, no una conversacion natural y calida.
+```
 
 ### Dataset v5: fixes targetados
 Generamos 487 ejemplos adicionales apuntando especificamente a estas debilidades:
@@ -214,14 +286,29 @@ v5 (2755 ejemplos)
 
 ---
 
+## Resumen de Tests por Modelo
+
+| Test | Falcon H1R 7B | Jais 7B (260 ej) | Jais 7B (1370 ej) | Jais 7B (2268 ej) | Aya 8B base |
+|------|--------------|-------------------|--------------------|--------------------|-------------|
+| Saludo emirati | `<think>` tags | MSA generico | Emirati pero como familiar | Emirati correcto | MSA formal |
+| Cocina | `<think>` tags | Lista ChatGPT | Bueno pero verboso | Bueno | Lista markdown |
+| Adolescente | `<think>` tags | Sin cobertura | Confunde persona | Mejorado | Sin boundaries |
+| Refusal | `<think>` tags | Ayuda alegremente | Semi-rechaza | Firme | Ayuda alegremente |
+| Tono | Alucinacion total | Robotico | Verboso | Mejorado | ChatGPT-like |
+| **Accuracy** | **0%** | **70%** | **93%** | **Mejor** | **Base sin FT** |
+
+---
+
 ## Modelos Probados
 
-| Modelo | Params | Resultado | Por que se detuvo |
-|--------|--------|-----------|-------------------|
-| Falcon H1R 7B | 7B | Fallo | Arabe pobre, problemas de cuantizacion SSM, genera tags `<think>` |
-| Jais 7B Chat | 7B | Bueno (93% acc) | Funcional pero cae en MSA, verboso |
-| Qwen2.5-3B-Instruct | 3B | Pipeline testeado | Modelo mas chico, usado para validar pipeline |
-| Aya Expanse 8B | 8B | En progreso | Mejor soporte multilingue de arabe |
+| Modelo | Params | Loss | Resultado | Por que se cambio |
+|--------|--------|------|-----------|-------------------|
+| Falcon H1R 7B | 7B | 4.77→4.67 | 0% usable | Genera `<think>` tags, no habla arabe, cuantizacion rota |
+| Jais 7B Chat (r1) | 7B | 4.3→1.75 | 70% acc | MSA generico, cero refusals, sin personalidad |
+| Jais 7B Chat (r2) | 7B | 4.36→0.37 | 93% acc | Confunde persona, refusals debiles, verboso |
+| Jais 7B Chat (r3) | 7B | - | Mejor | Aun cae en MSA, scope parcial |
+| Qwen2.5-3B (test) | 3B | - | Pipeline ok | Solo para validar pipeline, muy chico |
+| Aya Expanse 8B | 8B | En progreso | Pendiente | Mejor soporte multilingue, 8B params |
 
 ---
 
@@ -229,14 +316,16 @@ v5 (2755 ejemplos)
 
 1. **El ecosistema ML es fragil.** Version de Python, compatibilidad CUDA/MPS, breaking changes de librerias — espera gastar 30% de tu tiempo en problemas de entorno.
 
-2. **Seleccion de modelo > trucos de training.** Cambiar de Falcon a Jais valio mas que cualquier ajuste de hiperparametros.
+2. **Seleccion de modelo > trucos de training.** Cambiar de Falcon a Jais valio mas que cualquier ajuste de hiperparametros. Falcon generaba `<think>` tags, Jais hablaba arabe. No hay hiperparametro que arregle un modelo que no sabe tu idioma.
 
-3. **La calidad de los datos escala mejor que la cantidad.** Pasar de 260 a 1370 ejemplos con la misma calidad dio retornos decrecientes. Pasar de datos genericos a fixes targetados de debilidades dio mejoras desproporcionadas.
+3. **La calidad de los datos escala mejor que la cantidad.** Pasar de 260 a 1370 ejemplos con la misma calidad dio retornos decrecientes. Pasar de datos genericos a fixes targetados de debilidades (persona, refusals, dialecto) dio mejoras desproporcionadas.
 
-4. **El refuerzo de persona necesita datos de training explicitos.** Los system prompts solos no son suficientes — el modelo necesita ver ejemplos de mantener limites.
+4. **El refuerzo de persona necesita datos de training explicitos.** Los system prompts solos no son suficientes — el modelo necesita ver ejemplos de mantener limites. Sin datos de persona, le decis "yimma" y se convierte en tu mama.
 
-5. **Los refusals deben ser firmes.** Un medio-rechazo ("esto no es mi area pero aca van unos tips...") es peor que no rechazar nada. Entrena con rechazos limpios.
+5. **Los refusals deben ser firmes.** Un medio-rechazo ("esto no es mi area pero aca van unos tips...") es peor que no rechazar nada. Entrena con rechazos limpios: reconocer, rechazar, redirigir.
 
-6. **La cuantizacion depende del modelo.** Los modelos con arquitectura Llama (Jais, Aya) cuantizan limpio. Arquitecturas exoticas (hibrido Mamba) pueden tener problemas numericos.
+6. **La cuantizacion depende del modelo.** Los modelos con arquitectura Llama (Jais, Aya) cuantizan limpio. Arquitecturas exoticas (hibrido Mamba) pueden tener problemas numericos que te hacen perder horas.
 
 7. **Apple Silicon es viable para fine-tuning** pero requiere herramientas diferentes (no Unsloth, no BitsAndBytes 4-bit, float16 en vez de NF4).
+
+8. **Testear temprano, testear seguido.** Cada ronda de tests revelo problemas que no se veian en las metricas de loss. Un modelo con loss 0.37 puede seguir confundiendo persona y dando refusals parciales. Las metricas no te cuentan toda la historia.
