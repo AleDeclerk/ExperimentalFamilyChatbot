@@ -73,7 +73,7 @@ $VENV llama.cpp/convert_hf_to_gguf.py \
   --outfile models/quantized/${MODEL_NAME}-f16.gguf 2>&1 | tee -a "$LOG"
 
 log "Cuantizando a Q5_K_M..."
-./llama.cpp/build/bin/llama-quantize \
+DYLD_LIBRARY_PATH=llama.cpp/build/bin ./llama.cpp/build/bin/llama-quantize \
   models/quantized/${MODEL_NAME}-f16.gguf \
   models/quantized/${MODEL_NAME}-q5km.gguf \
   Q5_K_M 2>&1 | tee -a "$LOG"
@@ -88,7 +88,7 @@ log "f16 eliminado para ahorrar espacio."
 # === PASO 5: Test rápido con llama-server ===
 log "PASO 5: Test rápido con llama.cpp..."
 
-./llama.cpp/build/bin/llama-server \
+DYLD_LIBRARY_PATH=llama.cpp/build/bin ./llama.cpp/build/bin/llama-server \
   -m models/quantized/${MODEL_NAME}-q5km.gguf \
   -t 4 -c 2048 --host 127.0.0.1 --port 8080 &
 SERVER_PID=$!
