@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Models (large files)
+models/base/
+models/fused/
+models/quantized/*.gguf
+models/adapters/*/
+
+# llama.cpp build
+llama.cpp/
+
+# Data - raw real conversations (may contain PII)
+# Synthetic data is tracked (conversations*.jsonl)
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env

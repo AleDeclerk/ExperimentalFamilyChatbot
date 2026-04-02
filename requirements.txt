@@ -1,0 +1,25 @@
+# Fine-tuning
+unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git
+trl>=0.12.0
+transformers>=4.46.0
+datasets>=3.0.0
+accelerate>=1.0.0
+peft>=0.13.0
+
+# Quantization & Inference
+llama-cpp-python>=0.3.0
+
+# Serving & UI
+gradio>=5.0.0
+fastapi>=0.115.0
+uvicorn>=0.32.0
+
+# Evaluation
+rouge-score>=0.1.2
+nltk>=3.9.0
+
+# Utilities
+huggingface-hub>=0.26.0
+safetensors>=0.4.0
+sentencepiece>=0.2.0
+protobuf>=5.0.0
