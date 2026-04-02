@@ -1,47 +1,47 @@
-# Emirati Family Chatbot
+# Chatbot Familiar Emirati
 
-A domain-specific chatbot that speaks Emirati Arabic dialect, specialized in family affairs. Fine-tuned with QLoRA and quantized to GGUF for edge deployment on devices with 8GB of RAM.
+Chatbot de dominio especifico que habla en dialecto arabe emirati, especializado en asuntos familiares. Fine-tuneado con QLoRA y cuantizado a GGUF para deployment en dispositivos con 8GB de RAM.
 
-## What it does
+## Que hace
 
-- Answers family-related questions in Emirati Arabic dialect (not MSA)
-- Covers: parenting, cooking, traditions, adolescent issues, celebrations, daily life
-- Politely refuses out-of-scope topics (programming, investments, etc.)
-- Maintains a warm but professional assistant persona (never role-plays as a family member)
+- Responde preguntas familiares en dialecto arabe emirati (no en arabe estandar/MSA)
+- Cubre: crianza, cocina, tradiciones, temas de adolescentes, celebraciones, vida diaria
+- Rechaza educadamente temas fuera de alcance (programacion, inversiones, etc.)
+- Mantiene una persona de asistente profesional y calido (nunca se hace pasar por un familiar)
 
-## Tech Stack
+## Stack Tecnologico
 
-| Component | Tool |
-|-----------|------|
-| Base model | Aya Expanse 8B (CohereLabs/aya-expanse-8b) |
+| Componente | Herramienta |
+|------------|-------------|
+| Modelo base | Aya Expanse 8B (CohereLabs/aya-expanse-8b) |
 | Fine-tuning | QLoRA via PEFT + TRL |
-| Quantization | llama.cpp (GGUF Q5_K_M) |
-| Inference | llama.cpp server (OpenAI-compatible API) |
+| Cuantizacion | llama.cpp (GGUF Q5_K_M) |
+| Inferencia | llama.cpp server (API compatible con OpenAI) |
 | UI | Gradio |
-| Dev machine | Apple M3 Max 48GB |
+| Maquina de desarrollo | Apple M3 Max 48GB |
 
-## Quick Start
+## Inicio Rapido
 
-### Prerequisites
+### Requisitos
 
 - Python 3.11+
-- llama.cpp compiled with Metal (macOS) or CUDA (Linux)
-- ~16GB disk for model files
+- llama.cpp compilado con Metal (macOS) o CUDA (Linux)
+- ~16GB de disco para archivos del modelo
 
-### Run inference (after fine-tuning)
+### Correr inferencia (despues del fine-tuning)
 
 ```bash
-# Terminal 1: Start llama.cpp server
+# Terminal 1: Levantar llama.cpp server
 ./llama.cpp/build/bin/llama-server \
   -m models/quantized/aya-chatbot-q5km.gguf \
   -t 4 -c 2048 --port 8080
 
-# Terminal 2: Start Gradio UI
+# Terminal 2: Levantar Gradio UI
 python deploy/ui.py
-# Open http://localhost:7860
+# Abrir http://localhost:7860
 ```
 
-### Run the full pipeline
+### Correr el pipeline completo
 
 ```bash
 # Setup
@@ -49,57 +49,57 @@ python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# Download Aya Expanse 8B to models/base/aya-expanse-8b/
+# Descargar Aya Expanse 8B a models/base/aya-expanse-8b/
 huggingface-cli download CohereForAI/aya-expanse-8b --local-dir models/base/aya-expanse-8b
 
-# Run pipeline (prepare data -> fine-tune -> fuse -> quantize -> test)
+# Correr pipeline (preparar datos -> fine-tune -> fusionar -> cuantizar -> test)
 bash scripts/run_aya_pipeline.sh
 ```
 
 ## Dataset
 
-2755 conversations in Emirati Arabic across 21 categories, generated with Claude API and manually validated. Includes multi-turn conversations and targeted weakness fixes.
+2755 conversaciones en arabe emirati en 21 categorias, generadas con Claude API y validadas manualmente. Incluye conversaciones multi-turn y correcciones targetadas de debilidades.
 
-See [TRAINING_DATA.md](TRAINING_DATA.md) for full dataset documentation.
+Ver [TRAINING_DATA.md](TRAINING_DATA.md) para documentacion completa del dataset.
 
-## Project History
+## Historia del Proyecto
 
-This project went through multiple model iterations (Falcon H1R 7B -> Jais 7B Chat -> Aya Expanse 8B) and 5 dataset versions. See [JOURNEY.md](JOURNEY.md) for the complete development story.
+Este proyecto paso por multiples iteraciones de modelos (Falcon H1R 7B -> Jais 7B Chat -> Aya Expanse 8B) y 5 versiones de dataset. Ver [JOURNEY.md](JOURNEY.md) para la historia completa de desarrollo.
 
-## Project Structure
+## Estructura del Proyecto
 
 ```
 ├── data/
-│   ├── raw/                    # Raw JSONL (v1-v5)
-│   └── processed/              # Train/test splits per model
+│   ├── raw/                    # JSONL crudos (v1-v5)
+│   └── processed/              # Splits train/test por modelo
 ├── scripts/
-│   ├── finetune.py             # QLoRA fine-tuning (generic, any HF model)
-│   ├── fuse_model.py           # Merge LoRA adapter + base
-│   ├── evaluate.py             # Evaluate against test set
-│   ├── prepare_dataset.py      # Validate + split data
-│   ├── run_aya_pipeline.sh     # End-to-end pipeline (Aya)
-│   └── generate_*.py           # Data generation scripts
+│   ├── finetune.py             # Fine-tuning QLoRA (generico, cualquier modelo HF)
+│   ├── fuse_model.py           # Fusionar adapter LoRA + base
+│   ├── evaluate.py             # Evaluar contra test set
+│   ├── prepare_dataset.py      # Validar + dividir datos
+│   ├── run_aya_pipeline.sh     # Pipeline end-to-end (Aya)
+│   └── generate_*.py           # Scripts de generacion de datos
 ├── models/
-│   ├── base/                   # Downloaded base models
-│   ├── adapters/               # LoRA adapters
-│   ├── fused/                  # Merged models
-│   └── quantized/              # GGUF files for deployment
+│   ├── base/                   # Modelos base descargados
+│   ├── adapters/               # Adapters LoRA
+│   ├── fused/                  # Modelos fusionados
+│   └── quantized/              # Archivos GGUF para deployment
 ├── deploy/
-│   ├── server.py               # FastAPI wrapper
-│   └── ui.py                   # Gradio chat interface
-├── eval/                       # Results and logs
-└── llama.cpp/                  # Quantization tools
+│   ├── server.py               # Wrapper FastAPI
+│   └── ui.py                   # Interfaz de chat Gradio
+├── eval/                       # Resultados y logs
+└── llama.cpp/                  # Herramientas de cuantizacion
 ```
 
-## Performance (Jais 7B, previous model)
+## Rendimiento (Jais 7B, modelo anterior)
 
-| Metric | Result |
-|--------|--------|
+| Metrica | Resultado |
+|---------|-----------|
 | Tokens/s | 60+ tok/s (M3 Max) |
 | TTFT | 60-150ms |
-| GGUF size | 4.7GB (Q5_K_M) |
-| RAM peak | ~5.7GB |
+| Tamano GGUF | 4.7GB (Q5_K_M) |
+| RAM pico | ~5.7GB |
 
-## License
+## Licencia
 
 MIT
